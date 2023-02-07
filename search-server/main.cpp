@@ -248,32 +248,118 @@ private:
     }
 };
 
-void PrintDocument(const Document& document) {
-    cout << "{ "s
-        << "document_id = "s << document.id << ", "s
-        << "relevance = "s << document.relevance << ", "s
-        << "rating = "s << document.rating
-        << " }"s << endl;
+template <typename T, typename U>
+void AssertEqualImpl(const T& t, const U& u, const string& t_str, const string& u_str, const string& file,
+    const string& func, unsigned line, const string& hint) {
+    if (t != u) {
+        cerr << boolalpha;
+        cerr << file << "("s << line << "): "s << func << ": "s;
+        cerr << "ASSERT_EQUAL("s << t_str << ", "s << u_str << ") failed: "s;
+        cerr << t << " != "s << u << "."s;
+        if (!hint.empty()) {
+            cerr << " Hint: "s << hint;
+        }
+        cerr << endl;
+        abort();
+    }
 }
 
+#define ASSERT_EQUAL(a, b) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, ""s)
+
+#define ASSERT_EQUAL_HINT(a, b, hint) AssertEqualImpl((a), (b), #a, #b, __FILE__, __FUNCTION__, __LINE__, (hint))
+
+void AssertImpl(bool value, const string& expr_str, const string& file, const string& func, unsigned line,
+    const string& hint) {
+    if (!value) {
+        cerr << file << "("s << line << "): "s << func << ": "s;
+        cerr << "ASSERT("s << expr_str << ") failed."s;
+        if (!hint.empty()) {
+            cerr << " Hint: "s << hint;
+        }
+        cerr << endl;
+        abort();
+    }
+}
+
+#define ASSERT(expr) AssertImpl(!!(expr), #expr, __FILE__, __FUNCTION__, __LINE__, ""s)
+
+#define ASSERT_HINT(expr, hint) AssertImpl(!!(expr), #expr, __FILE__, __FUNCTION__, __LINE__, (hint))
+
+template <typename Function>
+void RunTestImpl(const Function& fun, const string& fun_name) {
+    fun();
+    cerr << fun_name << " OK" << endl;
+}
+
+#define RUN_TEST(func) RunTestImpl((func), #func)
+
+// -------- Начало модульных тестов поисковой системы ----------
+
+// Тест проверяет сортировку, релевантность, стоп слова, минус слова, статусы и рейтинг
+void TestsRelevanceStopMinusWordsReiting() {
+    const int doc_id0 = 0;
+    const string content0 = "белый кот и модный ошейник"s;
+    const vector<int> ratings0 = { 8, -3 };
+
+    const int doc_id1 = 1;
+    const string content1 = "пушистый кот пушистый хвост"s;
+    const vector<int> ratings1 = { 7, 2, 7 };
+
+    const int doc_id2 = 2;
+    const string content2 = "ухоженный пёс выразительные глаза"s;
+    const vector<int> ratings2 = { 5, -12, 2, 1 };
+
+    const int doc_id3 = 3;
+    const string content3 = "ухоженный скворец евгений"s;
+    const vector<int> ratings3 = { 9 };
+
+    const int doc_id4 = 4;
+    const string content4 = "маленький пёс огромная лапа"s;
+    const vector<int> ratings4 = { 7, -3, 3 };
+
+    {
+        SearchServer server;
+        server.SetStopWords("и"s);
+        server.AddDocument(doc_id0, content0, DocumentStatus::ACTUAL, ratings0);
+        server.AddDocument(doc_id1, content1, DocumentStatus::ACTUAL, ratings1);
+        server.AddDocument(doc_id2, content2, DocumentStatus::ACTUAL, ratings2);
+        server.AddDocument(doc_id3, content3, DocumentStatus::BANNED, ratings3);
+        server.AddDocument(doc_id4, content4, DocumentStatus::ACTUAL, ratings4);
+        const auto found_docs = server.FindTopDocuments("пушистый ухоженный кот -лапа"s);
+
+        ASSERT_EQUAL_HINT(found_docs.size(), 3, "incorrect number of documents");
+
+        double idf_fluffy = log(5.0 / 1.0);
+        double idf_groom = log(5.0 / 2.0);
+        double idf_cat = log(5.0 / 2.0);
+
+        double tf_idf_0 = (1.0 / 4.0) * idf_cat;
+        double tf_idf_1 = ((2.0 / 4.0) * idf_fluffy) + ((1 * 1.0 / 4) * idf_cat);
+        double tf_idf_2 = (1.0 / 4.0) * idf_groom;
+
+        const Document& doc0 = found_docs[0];
+        ASSERT(doc0.id == doc_id1);
+        ASSERT_HINT(doc0.rating == 5, "incorrect rating in doc0");
+        ASSERT_EQUAL(doc0.relevance, tf_idf_1);
+
+        const Document& doc1 = found_docs[1];
+        ASSERT(doc1.id == doc_id0);
+        ASSERT_HINT(doc1.rating == 2, "incorrect rating in doc1");
+        ASSERT_EQUAL(doc1.relevance, tf_idf_0);
+
+        const Document& doc2 = found_docs[2];
+        ASSERT(doc2.id == doc_id2);
+        ASSERT_HINT(doc2.rating == -1, "incorrect rating in doc2");
+        ASSERT_EQUAL(doc1.relevance, tf_idf_2);
+    }
+}
+
+void TestSearchServer() {
+    RUN_TEST(TestsRelevanceStopMinusWordsReiting);
+}
+
+// --------- Окончание модульных тестов поисковой системы -----------
+
 int main() {
-    SearchServer search_server;
-    search_server.SetStopWords("и в на"s);
-    search_server.AddDocument(0, "белый кот и модный ошейник"s, DocumentStatus::ACTUAL, { 8, -3 });
-    search_server.AddDocument(1, "пушистый кот пушистый хвост"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
-    search_server.AddDocument(2, "ухоженный пёс выразительные глаза"s, DocumentStatus::ACTUAL, { 5, -12, 2, 1 });
-    search_server.AddDocument(3, "ухоженный скворец евгений"s, DocumentStatus::BANNED, { 9 });
-    cout << "ACTUAL by default:"s << endl;
-    for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s)) {
-        PrintDocument(document);
-    }
-    cout << "BANNED:"s << endl;
-    for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, DocumentStatus::BANNED)) {
-        PrintDocument(document);
-    }
-    cout << "Even ids:"s << endl;
-    for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, [](int document_id, DocumentStatus status, int rating) { return document_id % 2 == 0; })) {
-        PrintDocument(document);
-    }
-    return 0;
+    TestSearchServer();
 }
