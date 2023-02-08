@@ -295,8 +295,63 @@ void RunTestImpl(const Function& fun, const string& fun_name) {
 
 // -------- Начало модульных тестов поисковой системы ----------
 
-// Тест проверяет сортировку, релевантность, стоп слова, минус слова, статусы и рейтинг
-void TestsRelevanceStopMinusWordsReiting() {
+// Тест проверяет сортировку, релевантность, стоп слова, минус слова и рейтинг
+void TestsRelevanceStopMinusWordsRating() {
+    const int doc_id0 = 0;
+    const string content0 = "белый кот и модный ошейник"s;
+    const vector<int> ratings0 = { 8, -3 };
+
+    const int doc_id1 = 1;
+    const string content1 = "пушистый кот пушистый хвост"s;
+    const vector<int> ratings1 = { 7, 2, 7 };
+
+    const int doc_id2 = 2;
+    const string content2 = "ухоженный пёс выразительные глаза"s;
+    const vector<int> ratings2 = { 5, -12, 2, 1 };
+
+    const int doc_id3 = 3;
+    const string content3 = "маленький пёс огромная лапа"s;
+    const vector<int> ratings3 = { 7, -3, 3 };
+
+    {
+        SearchServer server;
+        server.SetStopWords("и"s);
+        server.AddDocument(doc_id0, content0, DocumentStatus::ACTUAL, ratings0);
+        server.AddDocument(doc_id1, content1, DocumentStatus::ACTUAL, ratings1);
+        server.AddDocument(doc_id2, content2, DocumentStatus::ACTUAL, ratings2);
+        server.AddDocument(doc_id3, content3, DocumentStatus::ACTUAL, ratings3);
+        const auto found_docs = server.FindTopDocuments("пушистый ухоженный кот -лапа"s);
+        const auto found_docs_banned = server.FindTopDocuments("ухоженный"s, DocumentStatus::BANNED);
+
+        ASSERT_EQUAL_HINT(found_docs.size(), 3, "incorrect number of documents");
+
+        double idf_fluffy = log(4.0 / 1.0);
+        double idf_groom = log(4.0 / 1.0);
+        double idf_cat = log(4.0 / 2.0);
+
+        double tf_idf_0 = (1.0 / 4.0) * idf_cat;
+        double tf_idf_1 = ((2.0 / 4.0) * idf_fluffy) + ((1 * 1.0 / 4) * idf_cat);
+        double tf_idf_2 = (1.0 / 4.0) * idf_groom;
+
+        const Document& doc0 = found_docs[0];
+        ASSERT(doc0.id == doc_id1);
+        ASSERT_HINT(doc0.rating == 5, "incorrect rating in doc0");
+        ASSERT_EQUAL(doc0.relevance, tf_idf_1);
+
+        const Document& doc1 = found_docs[1];
+        ASSERT(doc1.id == doc_id2);
+        ASSERT_HINT(doc1.rating == -1, "incorrect rating in doc1");
+        ASSERT_EQUAL(doc1.relevance, tf_idf_2);
+
+        const Document& doc2 = found_docs[2];
+        ASSERT(doc2.id == doc_id0);
+        ASSERT_HINT(doc2.rating == 2, "incorrect rating in doc2");
+        ASSERT_EQUAL(doc2.relevance, tf_idf_0);
+    }
+}
+
+// Тест проверяет статусы и поиск по кастомной предикате
+void TestsStatusesAndCustomStatus() {
     const int doc_id0 = 0;
     const string content0 = "белый кот и модный ошейник"s;
     const vector<int> ratings0 = { 8, -3 };
@@ -313,53 +368,66 @@ void TestsRelevanceStopMinusWordsReiting() {
     const string content3 = "ухоженный скворец евгений"s;
     const vector<int> ratings3 = { 9 };
 
-    const int doc_id4 = 4;
-    const string content4 = "маленький пёс огромная лапа"s;
-    const vector<int> ratings4 = { 7, -3, 3 };
+    {
+        SearchServer server;
+        server.AddDocument(doc_id0, content0, DocumentStatus::ACTUAL, ratings0);
+        server.AddDocument(doc_id1, content1, DocumentStatus::IRRELEVANT, ratings1);
+        server.AddDocument(doc_id2, content2, DocumentStatus::BANNED, ratings2);
+        server.AddDocument(doc_id3, content3, DocumentStatus::REMOVED, ratings3);
+
+        const auto found_docs_actual = server.FindTopDocuments(
+            "пушистый ухоженный кот"s);
+        const auto found_docs_irrelevant = server.FindTopDocuments(
+            "пушистый ухоженный кот"s, DocumentStatus::IRRELEVANT);
+        const auto found_docs_banned = server.FindTopDocuments(
+            "пушистый ухоженный кот"s, DocumentStatus::BANNED);
+        const auto found_docs_removed = server.FindTopDocuments(
+            "пушистый ухоженный кот"s, DocumentStatus::REMOVED);
+
+        const auto found_docs_custom = server.FindTopDocuments(
+            "пушистый ухоженный кот"s, [](int document_id, DocumentStatus status, int rating) { return document_id % 2 == 0; });
+
+        ASSERT_EQUAL_HINT(found_docs_actual.size(), 1, "incorrect number of status ACTUAL");
+        ASSERT_EQUAL_HINT(found_docs_irrelevant.size(), 1, "incorrect number of status IRRELEVANT");
+        ASSERT_EQUAL_HINT(found_docs_banned.size(), 1, "incorrect number of status BANNED");
+        ASSERT_EQUAL_HINT(found_docs_removed.size(), 1, "incorrect number of status REMOVED");
+
+        ASSERT_EQUAL_HINT(found_docs_custom.size(), 2, "incorrect number of custom status");
+    }
+}
+
+// Тест проверяет корректность добавления слов
+void TestsAddedWords() {
+    const int doc_id0 = 0;
+    const string content0 = "белый кот и модный ошейник"s;
+    const vector<int> ratings0 = { 8, -3 };
+
+    const int doc_id1 = 1;
+    const string content1 = "пушистый кот пушистый хвост"s;
+    const vector<int> ratings1 = { 7, 2, 7 };
 
     {
         SearchServer server;
-        server.SetStopWords("и"s);
         server.AddDocument(doc_id0, content0, DocumentStatus::ACTUAL, ratings0);
-        server.AddDocument(doc_id1, content1, DocumentStatus::ACTUAL, ratings1);
-        server.AddDocument(doc_id2, content2, DocumentStatus::ACTUAL, ratings2);
-        server.AddDocument(doc_id3, content3, DocumentStatus::BANNED, ratings3);
-        server.AddDocument(doc_id4, content4, DocumentStatus::ACTUAL, ratings4);
-        const auto found_docs = server.FindTopDocuments("пушистый ухоженный кот -лапа"s);
+        server.AddDocument(doc_id1, content1, DocumentStatus::IRRELEVANT, ratings1);
 
-        ASSERT_EQUAL_HINT(found_docs.size(), 3, "incorrect number of documents");
+        const auto [words0, status0] = server.MatchDocument(content0, doc_id0);
+        const auto [words1, status1] = server.MatchDocument(content1, doc_id1);
 
-        double idf_fluffy = log(5.0 / 1.0);
-        double idf_groom = log(5.0 / 2.0);
-        double idf_cat = log(5.0 / 2.0);
-
-        double tf_idf_0 = (1.0 / 4.0) * idf_cat;
-        double tf_idf_1 = ((2.0 / 4.0) * idf_fluffy) + ((1 * 1.0 / 4) * idf_cat);
-        double tf_idf_2 = (1.0 / 4.0) * idf_groom;
-
-        const Document& doc0 = found_docs[0];
-        ASSERT(doc0.id == doc_id1);
-        ASSERT_HINT(doc0.rating == 5, "incorrect rating in doc0");
-        ASSERT_EQUAL(doc0.relevance, tf_idf_1);
-
-        const Document& doc1 = found_docs[1];
-        ASSERT(doc1.id == doc_id0);
-        ASSERT_HINT(doc1.rating == 2, "incorrect rating in doc1");
-        ASSERT_EQUAL(doc1.relevance, tf_idf_0);
-
-        const Document& doc2 = found_docs[2];
-        ASSERT(doc2.id == doc_id2);
-        ASSERT_HINT(doc2.rating == -1, "incorrect rating in doc2");
-        ASSERT_EQUAL(doc1.relevance, tf_idf_2);
+        ASSERT_HINT(words0.size() == 5, "incorrect added words0");
+        ASSERT_HINT(words1.size() == 3, "incorrect added words1");
     }
 }
 
 void TestSearchServer() {
-    RUN_TEST(TestsRelevanceStopMinusWordsReiting);
+    RUN_TEST(TestsRelevanceStopMinusWordsRating);
+    RUN_TEST(TestsStatusesAndCustomStatus);
+    RUN_TEST(TestsAddedWords);
 }
 
 // --------- Окончание модульных тестов поисковой системы -----------
 
 int main() {
+    setlocale(LC_ALL, "Russian");
     TestSearchServer();
 }
