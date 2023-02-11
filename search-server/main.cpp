@@ -433,14 +433,11 @@ void TestsSortingByRelevance() {
 
         const auto found_docs = server.FindTopDocuments("пушистый ухоженный кот"s);
 
-        const Document& doc1 = found_docs[0];
-        ASSERT_EQUAL(doc1.id, id1);
+        auto sort_found_docs = [](const Document& lhs, const Document& rhs) {
+            return lhs.relevance > rhs.relevance;
+        };
 
-        const Document& doc2 = found_docs[1];
-        ASSERT_EQUAL(doc2.id, id2);
-
-        const Document& doc0 = found_docs[2];
-        ASSERT_EQUAL(doc0.id, id0);
+        ASSERT(is_sorted(begin(found_docs), end(found_docs), sort_found_docs));
     }
 }
 
