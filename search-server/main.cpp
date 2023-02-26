@@ -84,10 +84,12 @@ public:
     template <typename StringContainer>
     explicit SearchServer(const StringContainer& stop_words)
         : stop_words_(MakeUniqueNonEmptyStrings(stop_words)) {
-        for (const string& word : stop_words) {
-            if (!IsValidWord(word)) {
-                throw invalid_argument("Стоп-слова не были добавлены, так как содержат спецсимволы!");
+        bool result = all_of(stop_words.begin(), stop_words.end(), [](const string& str) {
+            return IsValidWord(str);
             }
+        );
+        if (!result) {
+            throw invalid_argument("Стоп-слова не были добавлены, так как содержат спецсимволы!");
         }
     }
 
@@ -126,15 +128,8 @@ public:
     template <typename DocumentPredicate>
     vector<Document> FindTopDocuments(const string& raw_query,
         DocumentPredicate document_predicate) const {
-        Query query;
-        if (!IsValidWord(raw_query)) {
-            throw invalid_argument("Поисковой запрос не выполнен, так как содержит спецсимволы!");
-        }
-        if (!ParseQuery(raw_query, query)) {
-            throw invalid_argument("Поисковой запрос не выполнен, так как минус слова введены неверно!");
-        }
+        Query query = ParseQuery(raw_query);
         auto matched_documents = FindAllDocuments(query, document_predicate);
-
         sort(matched_documents.begin(), matched_documents.end(),
             [](const Document& lhs, const Document& rhs) {
                 if (abs(lhs.relevance - rhs.relevance) < 1e-6) {
@@ -166,13 +161,7 @@ public:
     }
 
     tuple<vector<string>, DocumentStatus> MatchDocument(const string& raw_query, int document_id) const {
-        Query query;
-        if (!IsValidWord(raw_query)) {
-            throw invalid_argument("Поисковой запрос не выполнен, так как содержит спецсимволы!");
-        }
-        if (!ParseQuery(raw_query, query)) {
-            throw invalid_argument("Поисковой запрос не выполнен, так как минус слова введены неверно!");
-        }
+        Query query = ParseQuery(raw_query);
         vector<string> matched_words;
         for (const string& word : query.plus_words) {
             if (word_to_document_freqs_.count(word) == 0) {
@@ -241,17 +230,16 @@ private:
         bool is_stop;
     };
 
-    bool ParseQueryWord(string text, QueryWord& query_word) const {
+    QueryWord ParseQueryWord(string text) const {
         bool is_minus = false;
-        if (text[1] == '-' || text == "-"s) {
-            return false;
+        if (text[1] == '-' || text == "-"s || !IsValidWord(text)) {
+            throw invalid_argument("Ошибка в поисковом запросе!");
         }
         if (text[0] == '-') {
             is_minus = true;
             text = text.substr(1);
         }
-        query_word = { text, is_minus, IsStopWord(text) };
-        return true;
+        return { text, is_minus, IsStopWord(text) };
     }
 
     struct Query {
@@ -259,12 +247,10 @@ private:
         set<string> minus_words;
     };
 
-    bool ParseQuery(const string& text, Query& query) const {
+    Query ParseQuery(const string& text) const {
+        Query query;
         for (const string& word : SplitIntoWords(text)) {
-            QueryWord query_word;
-            if (!ParseQueryWord(word, query_word)) {
-                return false;
-            }
+            QueryWord query_word = ParseQueryWord(word);
             if (!query_word.is_stop) {
                 if (query_word.is_minus) {
                     query.minus_words.insert(query_word.data);
@@ -274,7 +260,7 @@ private:
                 }
             }
         }
-        return true;
+        return query;
     }
 
     double ComputeWordInverseDocumentFreq(const string& word) const {
@@ -326,12 +312,12 @@ void PrintDocument(const Document& document) {
 int main() {
     setlocale(LC_ALL, "Russian");
     try {
-        SearchServer search_server("и в н\x1а"s);
+        SearchServer search_server("и в на"s);
         (void)search_server.AddDocument(1, "пушистый кот пушистый хвост"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
         search_server.AddDocument(1, "пушистый пёс и модный ошейник"s, DocumentStatus::ACTUAL, { 1, 2 });
         search_server.AddDocument(-1, "пушистый пёс и модный ошейник"s, DocumentStatus::ACTUAL, { 1, 2 });
         search_server.AddDocument(3, "большой пёс скво\x12рец"s, DocumentStatus::ACTUAL, { 1, 3, 2 });
-        const auto documents = search_server.FindTopDocuments("--пушистый"s);
+        const auto documents = search_server.FindTopDocuments("-пушистый"s);
         for (const Document& document : documents) {
             PrintDocument(document);
         }
