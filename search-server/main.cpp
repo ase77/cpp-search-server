@@ -232,7 +232,10 @@ private:
 
     QueryWord ParseQueryWord(string text) const {
         bool is_minus = false;
-        if (text[1] == '-' || text == "-"s || !IsValidWord(text)) {
+        if (text.length() > 1 && text[1] == '-' || !IsValidWord(text)) {
+            throw invalid_argument("Ошибка в поисковом запросе!");
+        }
+        if (text == "-"s) {
             throw invalid_argument("Ошибка в поисковом запросе!");
         }
         if (text[0] == '-') {
